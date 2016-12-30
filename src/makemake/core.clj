@@ -2,12 +2,6 @@
   (:require [clojure.string :as string])
   (:gen-class))
 
-(def clean-target "clean :\n\trm *.o")
-
-(defn clean-target [executable objects]
-  (str "clean:\n\t rm -f " executable " "
-       (string/join ", " objects) "\n"))
-
 (defn get-c-files [path]
   (filter #(.endsWith (.getName %) ".c")
           (file-seq (clojure.java.io/file path))))
@@ -56,8 +50,7 @@
   (let [targets (get-targets path)]
     (str
       (default-target executable targets) "\n"
-      (string/join "\n"
-        (map create-rule targets)) "\n"
+      (string/join "\n" (map create-rule targets)) "\n"
       "clean : \n\trm " executable " *.o")))
 
 (defn create-makefile [args]
