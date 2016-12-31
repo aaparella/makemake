@@ -7,11 +7,15 @@
           (file-seq (clojure.java.io/file path))))
 
 (defn get-lines [file]
-  (line-seq (java.io.BufferedReader. (java.io.FileReader. file))))
+  (-> file
+      (java.io.FileReader.)
+      (java.io.BufferedReader.)
+      (line-seq)))
 
 (defn get-local-includes [file]
-  (filter #(.startsWith % "#include \"") 
-          (map string/trim (get-lines file))))
+  (->> (get-lines file)
+    (map string/trim)
+    (filter #(.startsWith % "#include \""))))
 
 (defn get-filename [include]
   (nth (string/split 
@@ -21,40 +25,39 @@
 (defn get-includes [file]
   (map get-filename (get-local-includes file)))
 
-(defn get-targets [path]
-  (loop [files (get-c-files path)
-         targets ()]
-    (if (= 0 (count files))
-      targets
-    (recur (rest files) 
-           (cons (list (.getName (first files)) (get-includes (first files))) 
-                 targets)))))
+(defn get-targets [files]
+  (into {} (map #(hash-map % (get-includes %)) files)))
 
 (defn object-file [filename]
   (string/replace filename ".c" ".o"))
 
-(defn create-rule [target]
-  (let [file (first target)
-        deps (nth target 1)]
-  (str (object-file file) " : " file " " (string/join " " (map #(str % ".o") deps)) "\n"
-       "\t gcc -ansi -Wall -g -c " file)))
+(defn create-rules [targets]
+  (into {}
+    (for [[file deps] targets]
+      (hash-map file
+      (str (object-file file) " : " file " " (string/join " " (map #(str % ".o") deps)) "\n"
+           "\tgcc -ansi -Wall -g -c " file)))))
 
-(defn default-target [executable targets]
-  (let [objects (map #(object-file (first %)) targets)]
-  (str  executable " : " 
-       (string/join " " objects) "\n"
-       "\t gcc -o " executable " " (string/join " " objects))))
+(defn default-target [executable source-files]
+  (let [objects (map object-file source-files)]
+    (str  executable " : " 
+      (string/join " " objects) "\n"
+                   "\tgcc -o " executable " " (string/join " " objects))))
 
+(defn write-makefile [targets path executable]
+  (let [source-files (map #(.getName %) (keys targets))
+        rules        (vals targets)]
+    (spit "makefile" 
+      (str
+        (default-target executable source-files) "\n"
+        (string/join "\n" rules) "\n"
+        "clean : \n\trm " executable " *.o"))))
 
-(defn generate-makefile [path executable]
-  (let [targets (get-targets path)]
-    (str
-      (default-target executable targets) "\n"
-      (string/join "\n" (map create-rule targets)) "\n"
-      "clean : \n\trm " executable " *.o")))
-
-(defn create-makefile [args]
-  (spit "makefile" (generate-makefile (first args) (nth args 1))))
+(defn create-makefile [[path executable]]
+  (-> (get-c-files path)
+    (get-targets)
+    (create-rules)
+    (write-makefile path executable)))
 
 (defn usage []
   (println "usage: lein run {path} {executable_name}"))
